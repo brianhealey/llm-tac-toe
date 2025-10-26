@@ -21,9 +21,10 @@ type Move struct {
 }
 
 type OllamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+	Model       string  `json:"model"`
+	Prompt      string  `json:"prompt"`
+	Stream      bool    `json:"stream"`
+	Temperature float64 `json:"temperature,omitempty"`
 }
 
 type OllamaResponse struct {
@@ -320,13 +321,14 @@ func BuildPrompt(board Board, player string, moveHistory []Move) string {
 }
 
 // CallLLM makes a request to Ollama API and returns the response and duration
-func CallLLM(prompt string, ollamaURL string, model string) (string, time.Duration, error) {
+func CallLLM(prompt string, ollamaURL string, model string, temperature float64) (string, time.Duration, error) {
 	startTime := time.Now()
 
 	reqBody := OllamaRequest{
-		Model:  model,
-		Prompt: prompt,
-		Stream: false,
+		Model:       model,
+		Prompt:      prompt,
+		Stream:      false,
+		Temperature: temperature,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -389,14 +391,18 @@ type GameStats struct {
 }
 
 // PlayGame runs a single game and returns the winner ("X", "O", "draw", or "error")
-func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber int, stats *GameStats) string {
+func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber int, temperature float64, stats *GameStats) string {
 	// Initialize game
 	board := InitBoard()
 	var moveHistory []Move
+	// Alternate starting player: odd games start with X, even games start with O
 	currentPlayer := PlayerX
+	if gameNumber%2 == 0 {
+		currentPlayer = PlayerO
+	}
 
 	if gameNumber > 0 {
-		fmt.Printf("\n=== Game %d ===\n", gameNumber)
+		fmt.Printf("\n=== Game %d (Starting player: %s) ===\n", gameNumber, currentPlayer)
 	}
 
 	DisplayBoard(board)
@@ -421,7 +427,7 @@ func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber in
 		for retry := 0; retry < maxRetries; retry++ {
 			fmt.Printf("Requesting move from LLM (attempt %d/%d)...\n", retry+1, maxRetries)
 
-			response, duration, err := CallLLM(prompt, ollamaURL, model)
+			response, duration, err := CallLLM(prompt, ollamaURL, model, temperature)
 			if err != nil {
 				fmt.Printf("Error calling LLM: %v\n", err)
 				continue
@@ -498,12 +504,14 @@ func main() {
 	maxRetries := flag.Int("retries", 3, "Maximum retries for invalid moves")
 	debug := flag.Bool("debug", false, "Show full prompts sent to LLM")
 	games := flag.Int("games", 1, "Number of games to play (0 for unlimited)")
+	temperature := flag.Float64("temperature", 0.7, "Temperature for LLM responses (0.0-2.0, higher = more random)")
 	flag.Parse()
 
 	fmt.Println("=== Tic-Tac-Toe: LLM vs LLM ===")
 	fmt.Printf("Using model: %s\n", *model)
 	fmt.Printf("Ollama URL: %s\n", *ollamaURL)
 	fmt.Printf("Max retries: %d\n", *maxRetries)
+	fmt.Printf("Temperature: %.2f\n", *temperature)
 	if *games == 0 {
 		fmt.Println("Games to play: Unlimited")
 	} else {
@@ -520,7 +528,7 @@ func main() {
 			break
 		}
 
-		result := PlayGame(*ollamaURL, *model, *maxRetries, *debug, gameNumber, &stats)
+		result := PlayGame(*ollamaURL, *model, *maxRetries, *debug, gameNumber, *temperature, &stats)
 
 		// Update statistics
 		stats.Total++
