@@ -319,8 +319,10 @@ func BuildPrompt(board Board, player string, moveHistory []Move) string {
 	return prompt.String()
 }
 
-// CallLLM makes a request to Ollama API
-func CallLLM(prompt string, ollamaURL string, model string) (string, error) {
+// CallLLM makes a request to Ollama API and returns the response and duration
+func CallLLM(prompt string, ollamaURL string, model string) (string, time.Duration, error) {
+	startTime := time.Now()
+
 	reqBody := OllamaRequest{
 		Model:  model,
 		Prompt: prompt,
@@ -329,27 +331,28 @@ func CallLLM(prompt string, ollamaURL string, model string) (string, error) {
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	resp, err := http.Post(ollamaURL+"/api/generate", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	var ollamaResp OllamaResponse
 	err = json.Unmarshal(body, &ollamaResp)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	return ollamaResp.Response, nil
+	duration := time.Since(startTime)
+	return ollamaResp.Response, duration, nil
 }
 
 // ParseMove extracts the position from LLM response
@@ -374,15 +377,19 @@ func ParseMove(response string) (int, error) {
 }
 
 type GameStats struct {
-	XWins  int
-	OWins  int
-	Draws  int
-	Errors int
-	Total  int
+	XWins              int
+	OWins              int
+	Draws              int
+	Errors             int
+	Total              int
+	TotalResponseTime  time.Duration
+	MinResponseTime    time.Duration
+	MaxResponseTime    time.Duration
+	ResponseCount      int
 }
 
 // PlayGame runs a single game and returns the winner ("X", "O", "draw", or "error")
-func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber int) string {
+func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber int, stats *GameStats) string {
 	// Initialize game
 	board := InitBoard()
 	var moveHistory []Move
@@ -414,13 +421,23 @@ func PlayGame(ollamaURL, model string, maxRetries int, debug bool, gameNumber in
 		for retry := 0; retry < maxRetries; retry++ {
 			fmt.Printf("Requesting move from LLM (attempt %d/%d)...\n", retry+1, maxRetries)
 
-			response, err := CallLLM(prompt, ollamaURL, model)
+			response, duration, err := CallLLM(prompt, ollamaURL, model)
 			if err != nil {
 				fmt.Printf("Error calling LLM: %v\n", err)
 				continue
 			}
 
-			fmt.Printf("LLM response: %s\n", strings.TrimSpace(response))
+			// Track response time
+			stats.TotalResponseTime += duration
+			stats.ResponseCount++
+			if stats.MinResponseTime == 0 || duration < stats.MinResponseTime {
+				stats.MinResponseTime = duration
+			}
+			if duration > stats.MaxResponseTime {
+				stats.MaxResponseTime = duration
+			}
+
+			fmt.Printf("LLM response: %s (%.2fs)\n", strings.TrimSpace(response), duration.Seconds())
 
 			position, err = ParseMove(response)
 			if err != nil {
@@ -503,7 +520,7 @@ func main() {
 			break
 		}
 
-		result := PlayGame(*ollamaURL, *model, *maxRetries, *debug, gameNumber)
+		result := PlayGame(*ollamaURL, *model, *maxRetries, *debug, gameNumber, &stats)
 
 		// Update statistics
 		stats.Total++
@@ -537,6 +554,15 @@ func main() {
 	fmt.Printf("Draws:              %d (%.1f%%)\n", stats.Draws, float64(stats.Draws)/float64(stats.Total)*100)
 	if stats.Errors > 0 {
 		fmt.Printf("Errors:             %d (%.1f%%)\n", stats.Errors, float64(stats.Errors)/float64(stats.Total)*100)
+	}
+	fmt.Println(strings.Repeat("-", 50))
+	if stats.ResponseCount > 0 {
+		avgResponseTime := stats.TotalResponseTime / time.Duration(stats.ResponseCount)
+		fmt.Printf("LLM Response Times:\n")
+		fmt.Printf("  Total calls:      %d\n", stats.ResponseCount)
+		fmt.Printf("  Average:          %.2fs\n", avgResponseTime.Seconds())
+		fmt.Printf("  Min:              %.2fs\n", stats.MinResponseTime.Seconds())
+		fmt.Printf("  Max:              %.2fs\n", stats.MaxResponseTime.Seconds())
 	}
 	fmt.Println(strings.Repeat("=", 50))
 }
