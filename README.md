@@ -13,6 +13,9 @@ An AI-powered Tic-Tac-Toe game where two LLMs play against each other using Olla
 - **Multi-game support** with statistics tracking
 - **Unlimited games mode** for continuous play
 - Intelligent threat detection (win/block analysis)
+- **Alternating starting player** across multiple games
+- **Temperature control** for varied gameplay
+- **Response time tracking** with detailed statistics
 
 ## Prerequisites
 
@@ -52,8 +55,11 @@ go run main.go -games 10
 # Play unlimited games (Ctrl+C to stop)
 go run main.go -games 0
 
+# Adjust temperature for more varied gameplay
+go run main.go -temperature 1.2 -games 10
+
 # Combine options for advanced usage
-go run main.go -model llama3.1:8b-instruct-q4_1 -games 5
+go run main.go -model llama3.1:8b-instruct-q4_1 -games 5 -temperature 0.8
 ```
 
 ## Configuration Options
@@ -66,6 +72,11 @@ Use command-line flags to configure the game:
 - `-retries` : Max retry attempts for invalid moves (default: `3`)
 - `-debug` : Show full prompts sent to LLM (default: `false`)
 - `-games` : Number of games to play (default: `1`, use `0` for unlimited)
+- `-temperature` : Controls randomness in LLM responses (default: `0.7`)
+  - Range: `0.0` to `2.0`
+  - Lower values (0.0-0.3): More deterministic, consistent moves
+  - Medium values (0.4-0.7): Balanced gameplay with variety
+  - Higher values (0.8-2.0): More creative and unpredictable moves
 
 ### Using LM Studio or Llama
 
@@ -77,7 +88,7 @@ go run main.go -url http://localhost:1234 -model your-model-name
 ## How It Works
 
 1. The game initializes an empty 3x3 board
-2. Player X starts first
+2. Player X starts first in odd-numbered games, Player O starts in even-numbered games
 3. For each turn:
    - The LLM receives a prompt with:
      - Complete move history (all previous plays by both players)
@@ -106,6 +117,10 @@ Single game:
 === Tic-Tac-Toe: LLM vs LLM ===
 Using model: llama3.2
 Ollama URL: http://localhost:11434
+Max retries: 3
+Temperature: 0.70
+
+=== Game 1 (Starting player: X) ===
 
   0 | 1 | 2
  -----------
@@ -117,7 +132,7 @@ Ollama URL: http://localhost:11434
 
 --- Player X's turn ---
 Requesting move from LLM (attempt 1/3)...
-LLM response: 4
+LLM response: 4 (1.23s)
 Player X plays position 4 (row 1, col 1)
 
   0 | 1 | 2
@@ -135,6 +150,7 @@ Multiple games with statistics:
 Using model: llama3.1:8b-instruct-q4_1
 Ollama URL: http://localhost:11434
 Max retries: 3
+Temperature: 0.70
 Games to play: 10
 
 ... games play ...
@@ -146,6 +162,12 @@ Total games played: 10
 Player X wins:      6 (60.0%)
 Player O wins:      3 (30.0%)
 Draws:              1 (10.0%)
+--------------------------------------------------
+LLM Response Times:
+  Total calls:      53
+  Average:          1.45s
+  Min:              0.87s
+  Max:              2.31s
 ==================================================
 ```
 
